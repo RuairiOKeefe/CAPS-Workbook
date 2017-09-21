@@ -1,0 +1,6 @@
+﻿  main.cpp
+src\main.cpp(13): warning C4244: 'argument': conversion from '__int64' to 'unsigned int', possible loss of data
+  Generating code
+  All 286 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  Finished generating code
+  CAPS-Workbook.vcxproj -> C:\Users\40165151\Documents\GitHub\CAPS-Workbook\CAPS-Workbook\x64\Release\CAPS-Workbook.exe
