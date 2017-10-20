@@ -16,7 +16,7 @@ using namespace std::chrono;
 constexpr size_t MAX_DEPTH = 512; // Upper limit on recursion, increase this on systems with more stack size.
 constexpr double PI = 3.14159265359;
 constexpr int NUM_ATTEMPTS = 100;
-constexpr int NumSamples = 1;
+constexpr int NumSamples = 2;
 
 template <class T, class Compare>
 constexpr const T &clamp(const T &v, const T &lo, const T &hi, Compare comp)
