@@ -11,6 +11,7 @@
 #include <string>
 #include <thread>
 #include <omp.h>
+#include <atomic>
 
 using namespace std;
 using namespace std::chrono;
@@ -231,6 +232,91 @@ vec radiance(const vector<sphere> &spheres, const ray &the_ray, int depth) noexc
 	else
 	{
 		return hit_sphere.emission + colour.mult(radiance(spheres, reflection_ray, depth) * Re + radiance(spheres, ray(hit_point, tdir), depth) * Tr);
+	}
+}
+
+vec atomicRadiance(const vector<sphere> &spheres, const ray &the_ray, int depth) noexcept
+{
+	static random_device rd;
+	static default_random_engine generator(rd());
+	static uniform_real_distribution<double> distribution;
+	static auto get_random_number = bind(distribution, generator);
+
+	double distance;
+	size_t sphere_index;
+	if (!intersect(spheres, the_ray, distance, sphere_index))
+		return vec();
+	const sphere &hit_sphere = spheres[sphere_index];
+	vec hit_point = the_ray.origin + the_ray.direction * distance;
+	vec intersection_normal = (hit_point - hit_sphere.position).normal();
+	vec pos_intersection_normal = intersection_normal.dot(the_ray.direction) < 0 ? intersection_normal : intersection_normal * -1;
+	vec colour = hit_sphere.colour;
+	double max_reflection = max({ colour.x, colour.y, colour.z });
+	if (depth > MAX_DEPTH)
+	{
+		return hit_sphere.emission;
+	}
+	else if (++depth > 5)
+	{
+		if (get_random_number() < max_reflection)
+		{
+			colour = colour * (1.0 / max_reflection);
+		}
+		else
+		{
+			return hit_sphere.emission;
+		}
+	}
+
+	if (hit_sphere.reflection == reflection_type::DIFFUSE)
+	{
+		double r1 = 2.0 * PI * get_random_number();
+		double r2 = get_random_number();
+		vec w = pos_intersection_normal;
+		vec u = ((abs(w.x) > 0.1 ? vec(0, 1, 0) : vec(1, 0, 0)).cross(w)).normal();
+		vec v = w.cross(u);
+		vec new_direction = (u * cos(r1) * sqrt(r2) + v * sin(r1) * sqrt(r2) + w * sqrt(1 - r2)).normal();
+		return hit_sphere.emission + colour.mult(radiance(spheres, ray(hit_point, new_direction), depth));
+	}
+	else if (hit_sphere.reflection == reflection_type::SPECULAR)
+	{
+		return hit_sphere.emission + colour.mult(atomicRadiance(spheres, ray(hit_point, the_ray.direction - intersection_normal * 2 * intersection_normal.dot(the_ray.direction)), depth));
+	}
+	ray reflection_ray(hit_point, the_ray.direction - intersection_normal * 2 * intersection_normal.dot(the_ray.direction));
+	bool into = intersection_normal.dot(pos_intersection_normal) > 0;
+	atomic<double> nc = 1, nt = 1.5, nnt = into ? nc / nt : nt / nc;
+	double ddn = the_ray.direction.dot(pos_intersection_normal);
+	double cos2t = 1 - nnt * nnt * (1 - ddn * ddn);
+	if (cos2t < 0.0)
+	{
+		return hit_sphere.emission + colour.mult(atomicRadiance(spheres, reflection_ray, depth));
+	}
+	vec tdir = (the_ray.direction * nnt - intersection_normal * ((into ? 1 : -1) * (ddn * nnt + sqrt(cos2t)))).normal();
+	atomic<double> a, b, R0;
+	a.store(nt.load());
+		//nt - nc;
+	atomic<double> b = nt + nc;
+	atomic<double> R0 = a * a / (b * b);
+	atomic<double> c = 1 - (into ? -ddn : tdir.dot(intersection_normal));
+	atomic<double> Re = R0 + (1 - R0) * c * c * c * c * c;
+	atomic<double> Tr = 1 - Re;
+	atomic<double> P = 0.25 + 0.5 * Re;
+	atomic<double> RP = Re / P;
+	atomic<double> TP = Tr / (1.0 - P);
+	if (depth > 2)
+	{
+		if (get_random_number() < P)
+		{
+			return hit_sphere.emission + colour.mult(atomicRadiance(spheres, reflection_ray, depth) * RP);
+		}
+		else
+		{
+			return hit_sphere.emission + colour.mult(atomicRadiance(spheres, ray(hit_point, tdir), depth) * TP);
+		}
+	}
+	else
+	{
+		return hit_sphere.emission + colour.mult(atomicRadiance(spheres, reflection_ray, depth) * Re + radiance(spheres, ray(hit_point, tdir), depth) * Tr);
 	}
 }
 
@@ -462,7 +548,6 @@ void CustomLoop()
 
 		for (size_t y = 0; y < dimension; ++y)
 		{
-			//std::cout << "Rendering " << dimension << " * " << dimension << "pixels. Samples:" << samples * 4 << " spp (" << 100.0 * y / (dimension - 1) << ")" << endl;
 			for (size_t x = 0; x < dimension; ++x)
 			{
 				for (size_t sy = 0, i = (dimension - y - 1) * dimension + x; sy < 2; ++sy)
@@ -475,7 +560,7 @@ void CustomLoop()
 							double r1 = 2 * get_random_number(), dx = r1 < 1 ? sqrt(r1) - 1 : 1 - sqrt(2 - r1);
 							double r2 = 2 * get_random_number(), dy = r2 < 1 ? sqrt(r2) - 1 : 1 - sqrt(2 - r2);
 							vec direction = cx * static_cast<double>(((sx + 0.5 + dx) / 2 + x) / dimension - 0.5) + cy * static_cast<double>(((sy + 0.5 + dy) / 2 + y) / dimension - 0.5) + camera.direction;
-							r = r + radiance(spheres, ray(camera.origin + direction * 140, direction.normal()), 0) * (1.0 / samples);
+							r = r + atomicRadiance(spheres, ray(camera.origin + direction * 140, direction.normal()), 0) * (1.0 / samples);
 						}
 						pixels[i] = pixels[i] + vec(clamp(r.x, 0.0, 1.0), clamp(r.y, 0.0, 1.0), clamp(r.z, 0.0, 1.0)) * 0.25;
 					}
@@ -493,7 +578,8 @@ void CustomLoop()
 int main(int argc, char **argv)
 {
 	//BaseLoop();
-	OmpLoop();
-	//CustomLoop();
+	//OmpLoop();
+	CustomLoop();
+
 	return 0;
 }
