@@ -357,6 +357,7 @@ void BaseLoop()
 		clock_t end = clock();
 		float elapsedTime = float(end - t) / CLOCKS_PER_SEC;
 		data << elapsedTime << endl;
+		pixels.clear();
 	}
 	data.close();
 }
@@ -424,6 +425,7 @@ void OmpLoop()
 		clock_t end = clock();
 		float elapsedTime = float(end - t) / CLOCKS_PER_SEC;
 		data << elapsedTime << endl;
+		pixels.clear();
 	}
 	data.close();
 }
@@ -499,6 +501,7 @@ void CustomLoop()
 		clock_t end = clock();
 		float elapsedTime = float(end - t) / CLOCKS_PER_SEC;
 		data << elapsedTime << endl;
+		pixels.clear();
 	}
 	data.close();
 }
@@ -506,8 +509,8 @@ void CustomLoop()
 int main(int argc, char **argv)
 {
 	//BaseLoop();
-	//OmpLoop();
-	CustomLoop();
+	OmpLoop();
+	//CustomLoop();
 
 	return 0;
 }
