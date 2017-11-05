@@ -509,8 +509,8 @@ void CustomLoop()
 int main(int argc, char **argv)
 {
 	//BaseLoop();
-	OmpLoop();
-	//CustomLoop();
+	//OmpLoop();
+	CustomLoop();
 
 	return 0;
 }
