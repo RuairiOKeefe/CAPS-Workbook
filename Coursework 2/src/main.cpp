@@ -243,12 +243,6 @@ int main(void)
 	unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
 	std::mt19937 generator(seed);
 	std::uniform_real_distribution<double> uniform01(0.0, 1.0);
-
-	double radius = 100;        // radius of universe
-								//double solarmass = 100;
-
-
-
 	
 	for (int i = 1; i < MAX_PARTICLES; i++)
 	{
