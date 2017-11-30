@@ -1,5 +1,26 @@
+#define _USE_MATH_DEFINES
+
+//The maximum particles to be simulated
+#define MAX_PARTICLES 1000
+//How many simulations are to be ran
+#define NUM_SIMULATIONS 1000
+//The delta time between each simulation
+#define TIMESTEP 0.0001f;
+//Small value to prevent /0
+#define SOFTENING 1e-4f
+//Newtons gravitational constant, probably wont use this because of how weak gravity is 
+#define G 6.673e-11f
+
+//Density of hydrogen in kg/m3
+#define H_DENISTY 0.08988
+//Density of oxygen in kg/m3
+#define O_DENISTY 1.429
+//Density of iron in kg/m3
+#define FE_DENISTY 7874.0
+//Density of osmium in kg/m3
+#define OS_DENISTY 22600.0
+
 #include "GLShader.h"
-//#include <GL\GLU.h>
 #include <GLFW\glfw3.h>
 #include <chrono>
 #include <glm\gtc\type_ptr.hpp>
@@ -13,19 +34,13 @@
 #include<chrono>
 #include <iostream>
 #include <ctime>
-//#include <math.h>
+#include <math.h>
 #include <algorithm>
 #include "Texture.h"
 #include <glm\gtx\string_cast.hpp>
 #include <omp.h>
 #include <thread>
-
-//The maximum particles to be simulated
-#define MAX_PARTICLES 1000
-//Small value to prevent /0
-#define SOFTENING 1e-9f
-//Newtons gravitational constant, probably wont use this because of how weak gravity is 
-#define G 6.673e-11f
+#include <deque>
 
 //The texture for each particle
 Texture tex;
@@ -49,25 +64,14 @@ struct Particle
 {
 	//Position of the particle.
 	glm::vec3 pos;
-	//Current Force acting on the particle
-	glm::vec3 force;
 	//Colour of the particle.
 	unsigned char r, g, b, a;
-	//Radius of the particle
+	//Radius of the particle in meters
 	float radius;
 	//Velocity of the particle
 	glm::vec3 velocity;
-	//Particles mass
+	//Particles mass in kg
 	float mass;
-
-
-	//Update the particle
-	void Update(float deltaTime)
-	{
-		velocity += (force / mass);
-		pos += deltaTime * velocity;
-	}
-
 };
 
 GLuint VertexArrayID;
@@ -77,8 +81,13 @@ GLuint pos_buffer;
 GLuint colour_buffer;
 GLuint vertex_buffer;
 
+//Array of all the particles in the scene
 Particle particles[MAX_PARTICLES];
+//The positions of every particle after each simulation
+Particle particleMovements[NUM_SIMULATIONS][MAX_PARTICLES];
 double lastTime;
+
+using namespace std::chrono;
 
 int Initialise()
 {
@@ -101,7 +110,7 @@ int Initialise()
 	// Open a window and create its OpenGL context
 	window = glfwCreateWindow(1920, 1080, "N-Body Simulation", NULL, NULL);
 	if (window == NULL) {
-		fprintf(stderr, "Failed to open GLFW window. If you have an Intel GPU, they are not 3.3 compatible. Try the 2.1 version of the tutorials.\n");
+		fprintf(stderr, "Failed to open GLFW window.\n");
 		getchar();
 		glfwTerminate();
 		return -1;
@@ -129,12 +138,6 @@ int Initialise()
 	//Backgroud colour
 	glClearColor(0.2f, 0.2f, 0.2f, 0.0f);
 
-	// Enable depth test
-	glEnable(GL_DEPTH_TEST);
-	// Accept fragment if it closer to the camera than the former one
-	glDepthFunc(GL_LESS);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glGenVertexArrays(1, &VertexArrayID);
 	glBindVertexArray(VertexArrayID);
 
@@ -148,7 +151,7 @@ int Initialise()
 
 	cam.SetProjection(glm::quarter_pi<float>(), 1920 / 1080, 2.414f, 100000);
 	cam.SetWindow(window);
-	cam.SetPosition(glm::vec3(0, 0, 800));
+	cam.SetPosition(glm::vec3(0, 0, 200));
 
 	// Vertex shader
 	CameraRight_worldspace_ID = glGetUniformLocation(shader.GetId(), "CameraRight_worldspace");
@@ -161,7 +164,7 @@ int Initialise()
 	std::mt19937 generator(seed);
 	std::uniform_real_distribution<double> randomPos(0.0, 1.0);
 	//need to use
-	for (int i = 1; i < MAX_PARTICLES; i++)
+	for (int i = 0; i < MAX_PARTICLES; i++)
 	{
 		double x = (rand() % 100) - 50;
 		double y = (rand() % 100) - 50;
@@ -174,7 +177,13 @@ int Initialise()
 		particles[i].b = 255;
 		particles[i].a = 255;
 		particles[i].mass = 1;
-		particles[i].radius = particles[i].mass;
+
+		//if (i == 0)
+			//particles[i].mass = 100;
+
+		//Volume = mass/density
+		float volume = particles[i].mass / H_DENISTY;
+		particles[i].radius = cbrt((3 * volume) / (4 * M_PI));
 
 		gl_colour_data[4 * i + 0] = particles[i].r;
 		gl_colour_data[4 * i + 1] = particles[i].g;
@@ -211,13 +220,16 @@ int Initialise()
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+	for (int i = 0; i < MAX_PARTICLES; i++)
+	{
+		particleMovements[0][i] = particles[i];
+	}
+
 	return 0;
 }
 
-void UpdateParticles(double deltaTime)
+void SimulateParticles(int currentIndex)
 {
-	//set somewhere more logical
-	float dt = 0.01;
 	for (int i = 0; i < MAX_PARTICLES; i++)
 	{
 		float fX = 0.0f; float fY = 0.0f; float fZ = 0.0f;
@@ -227,13 +239,16 @@ void UpdateParticles(double deltaTime)
 			float dx = particles[j].pos.x - particles[i].pos.x;
 			float dy = particles[j].pos.y - particles[i].pos.y;
 			float dz = particles[j].pos.z - particles[i].pos.z;
-			float distSqr = dx*dx + dy*dy + dz*dz + SOFTENING;
-			float invDist = 1.0f / sqrtf(distSqr);
-			float invDist3 = invDist * invDist * invDist;
+			float distSqr = dx*dx + dy*dy + dz*dz;
+			if (distSqr != 0)
+			{
+				float invDist = 1.0f / sqrtf(distSqr);
+				float invDist3 = invDist * invDist * invDist;
 
-			fX += (particles[i].mass * particles[j].mass) * dx * invDist3;
-			fY += (particles[i].mass * particles[j].mass) * dy * invDist3;
-			fZ += (particles[i].mass * particles[j].mass) * dz * invDist3;
+				fX += (particles[i].mass * particles[j].mass) * dx * invDist3;
+				fY += (particles[i].mass * particles[j].mass) * dy * invDist3;
+				fZ += (particles[i].mass * particles[j].mass) * dz * invDist3;
+			}
 		}
 
 		particles[i].velocity.x += fX;
@@ -243,23 +258,41 @@ void UpdateParticles(double deltaTime)
 
 	for (int i = 0; i < MAX_PARTICLES; i++)
 	{
-		
 		Particle& p = particles[i];
-		p.pos += dt*p.velocity;
+		p.pos += p.velocity * TIMESTEP;
+		particleMovements[currentIndex][i] = particles[i];
+	}
+}
 
-		float elasticVel = 0.1;
-		if (p.pos.x < -100)
-			p.velocity.x += elasticVel;
-		if (p.pos.x > 100)
-			p.velocity.x -= elasticVel;
-		if (p.pos.y < -100)
-			p.velocity.y += elasticVel;
-		if (p.pos.y > 100)
-			p.velocity.y -= elasticVel;
-		if (p.pos.z < -100)
-			p.velocity.z += elasticVel;
-		if (p.pos.z > 100)
-			p.velocity.z -= elasticVel;
+void UpdatePosBuffer(int currentIndex)
+{
+	Particle tempParticles[MAX_PARTICLES];
+	for (int i = 0; i < MAX_PARTICLES; i++)
+	{
+		tempParticles[i] = particleMovements[currentIndex][i];
+	}
+
+	bool swap = 1;
+	for (int i = 1; (i <= MAX_PARTICLES) && swap; i++)
+	{
+		swap = 0;
+		for (int j = 0; j < (MAX_PARTICLES - 1); j++)
+		{
+			Particle& p1 = tempParticles[j];
+			Particle& p2 = tempParticles[j+1];
+			if (glm::distance(p2.pos, cam.GetPosition()) > glm::distance(p1.pos, cam.GetPosition()))
+			{
+				Particle temp = p1;
+				p1 = p2;
+				p2 = temp;
+				swap = 1; 
+			}
+		}
+	}
+
+	for (int i = 0; i < MAX_PARTICLES; i++)
+	{
+		Particle& p = tempParticles[i];
 
 		// Update GPU buffer with new positions.
 		gl_pos_data[4 * i + 0] = p.pos.x;
@@ -288,10 +321,6 @@ void Update(double deltaTime)
 	cam.Rotate(static_cast<float>(delta_x), static_cast<float>(-delta_y)); // flipped y to revert the invert.
 	cam.Update(deltaTime);
 
-
-	// Handle N-Body simulation segment.
-	//SimulateParticles();
-	UpdateParticles(deltaTime);
 }
 
 
@@ -359,17 +388,32 @@ int main(void)
 {
 	if (Initialise() == -1)
 		return -1;
+	std::ofstream data((std::to_string(NUM_SIMULATIONS) + "_simulations.csv").c_str(), std::ofstream::out);
+	clock_t t;
+	t = clock();
+	for (int i = 0; i < NUM_SIMULATIONS; i++)
+	{
+		SimulateParticles(i);
+	}
+	clock_t end = clock();
+	float elapsedTime = float(end - t) / CLOCKS_PER_SEC;
+	data << elapsedTime << std::endl;
 
+	data.close();
+
+	int i = 0;
 	//While still running and esc hasnt been pressed
 	while (glfwGetKey(window, GLFW_KEY_ESCAPE) != GLFW_PRESS && glfwWindowShouldClose(window) == 0)
 	{
-
+		UpdatePosBuffer(i);
 		double currentTime = glfwGetTime();
 		double delta = currentTime - lastTime;
-		Update(delta);//need to store postions in collection and render later
+		Update(delta);
 		Render();
 		lastTime = currentTime;
-
+		i++;
+		if (i > NUM_SIMULATIONS)
+			i = 0;
 	}
 
 	delete[] gl_pos_data;
