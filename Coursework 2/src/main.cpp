@@ -21,7 +21,7 @@
 #include <thread>
 
 //The maximum particles to be simulated
-#define MAX_PARTICLES 100
+#define MAX_PARTICLES 1000
 //Small value to prevent /0
 #define SOFTENING 1e-9f
 //Newtons gravitational constant, probably wont use this because of how weak gravity is 
@@ -80,7 +80,7 @@ GLuint vertex_buffer;
 Particle particles[MAX_PARTICLES];
 double lastTime;
 
-bool Initialise()
+int Initialise()
 {
 	// Initialise GLFW
 	if (!glfwInit())
@@ -148,7 +148,7 @@ bool Initialise()
 
 	cam.SetProjection(glm::quarter_pi<float>(), 1920 / 1080, 2.414f, 100000);
 	cam.SetWindow(window);
-	cam.SetPosition(glm::vec3(0, 0, 20));
+	cam.SetPosition(glm::vec3(0, 0, 800));
 
 	// Vertex shader
 	CameraRight_worldspace_ID = glGetUniformLocation(shader.GetId(), "CameraRight_worldspace");
@@ -163,9 +163,9 @@ bool Initialise()
 	//need to use
 	for (int i = 1; i < MAX_PARTICLES; i++)
 	{
-		double x = rand() % 100;
-		double y = rand() % 100;
-		double z = rand() % 100;
+		double x = (rand() % 100) - 50;
+		double y = (rand() % 100) - 50;
+		double z = (rand() % 100) - 50;
 
 		particles[i].pos = glm::dvec3(x, y, z);
 		particles[i].velocity = glm::dvec3(0);
@@ -174,7 +174,7 @@ bool Initialise()
 		particles[i].b = 255;
 		particles[i].a = 255;
 		particles[i].mass = 1;
-		particles[i].radius = 1;
+		particles[i].radius = particles[i].mass;
 
 		gl_colour_data[4 * i + 0] = particles[i].r;
 		gl_colour_data[4 * i + 1] = particles[i].g;
@@ -208,6 +208,9 @@ bool Initialise()
 	//Initialize with empty (NULL) buffer : it will be updated later, each frame.
 	glBufferData(GL_ARRAY_BUFFER, MAX_PARTICLES * 4 * sizeof(GLubyte), NULL, GL_STREAM_DRAW);
 
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
 	return 0;
 }
 
@@ -217,7 +220,6 @@ void UpdateParticles(double deltaTime)
 	float dt = 0.01;
 	for (int i = 0; i < MAX_PARTICLES; i++)
 	{
-		//Particle& p = particles[i];
 		float fX = 0.0f; float fY = 0.0f; float fZ = 0.0f;
 
 		for (int j = 0; j < MAX_PARTICLES; j++)
@@ -229,9 +231,9 @@ void UpdateParticles(double deltaTime)
 			float invDist = 1.0f / sqrtf(distSqr);
 			float invDist3 = invDist * invDist * invDist;
 
-			fX += dx * invDist3;
-			fY += dy * invDist3;
-			fZ += dz * invDist3;
+			fX += (particles[i].mass * particles[j].mass) * dx * invDist3;
+			fY += (particles[i].mass * particles[j].mass) * dy * invDist3;
+			fZ += (particles[i].mass * particles[j].mass) * dz * invDist3;
 		}
 
 		particles[i].velocity.x += fX;
@@ -241,8 +243,23 @@ void UpdateParticles(double deltaTime)
 
 	for (int i = 0; i < MAX_PARTICLES; i++)
 	{
+		
 		Particle& p = particles[i];
 		p.pos += dt*p.velocity;
+
+		float elasticVel = 0.1;
+		if (p.pos.x < -100)
+			p.velocity.x += elasticVel;
+		if (p.pos.x > 100)
+			p.velocity.x -= elasticVel;
+		if (p.pos.y < -100)
+			p.velocity.y += elasticVel;
+		if (p.pos.y > 100)
+			p.velocity.y -= elasticVel;
+		if (p.pos.z < -100)
+			p.velocity.z += elasticVel;
+		if (p.pos.z > 100)
+			p.velocity.z -= elasticVel;
 
 		// Update GPU buffer with new positions.
 		gl_pos_data[4 * i + 0] = p.pos.x;
