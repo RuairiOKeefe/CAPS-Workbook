@@ -3,6 +3,7 @@
 #include <glm\gtx\string_cast.hpp>
 void Camera::Update(float deltaTime)
 {
+	Movement(deltaTime);
 	// Calculate the forward direction - spherical coordinates to Cartesian
 	glm::vec3 forward(cosf(pitch) * -sinf(yaw), sinf(pitch), -cosf(yaw) * cosf(pitch));
 	// Normalize forward
@@ -30,4 +31,35 @@ void Camera::Update(float deltaTime)
 	translation = glm::vec3(0.0f, 0.0f, 0.0f);
 	// We can now calculate the view matrix
 	view = glm::lookAt(position, target, up);
+}
+
+void Camera::Rotate(float deltaYaw, float deltaPitch)
+{
+	pitch += deltaPitch;
+	yaw -= deltaYaw;
+}
+
+void Camera::Movement(float deltaTime)
+{
+	glm::vec3 movement;
+	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+	{
+		movement += glm::vec3(0, 0, 5)*deltaTime;
+		translation += movement;
+	}
+	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+	{
+		movement += glm::vec3(0, 0, -5)*deltaTime;
+		translation += movement;
+	}
+	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+	{
+		movement += glm::vec3(-5, 0, 0)*deltaTime;
+		translation += movement;
+	}
+	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+	{
+		movement += glm::vec3(5, 0, 0)*deltaTime;
+		translation += movement;
+	}
 }

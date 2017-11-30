@@ -22,9 +22,10 @@
 
 //The maximum particles to be simulated
 #define MAX_PARTICLES 100
-
+//Small value to prevent /0
+#define SOFTENING 1e-9f
 //Newtons gravitational constant, probably wont use this because of how weak gravity is 
-#define G 6.673e-11
+#define G 6.673e-11f
 
 //The texture for each particle
 Texture tex;
@@ -52,18 +53,13 @@ struct Particle
 	glm::vec3 force;
 	//Colour of the particle.
 	unsigned char r, g, b, a;
-	//Radius of the particle, not represented visually
-	float size;
+	//Radius of the particle
+	float radius;
 	//Velocity of the particle
 	glm::vec3 velocity;
 	//Particles mass
 	float mass;
 
-	//Caclulate the force that another particle is having on this particle.
-	void AddForce(Particle& b)
-	{
-
-	}
 
 	//Update the particle
 	void Update(float deltaTime)
@@ -72,33 +68,213 @@ struct Particle
 		pos += deltaTime * velocity;
 	}
 
-	void ResetForce()
-	{
-		force = glm::dvec3(0);
-	}
-
-	bool operator<(const Particle& that) const
-	{
-		// Sort in reverse order : far particles drawn first.
-		return this->pos.z > that.pos.z;
-	}
-
-	void Print()
-	{
-		std::cout << glm::to_string(pos) << std::endl;
-	}
 };
 
-Particle Particles[MAX_PARTICLES];
+GLuint VertexArrayID;
 static GLfloat* gl_pos_data = new GLfloat[MAX_PARTICLES * 4];
 static GLubyte* gl_colour_data = new GLubyte[MAX_PARTICLES * 4];
 GLuint pos_buffer;
 GLuint colour_buffer;
 GLuint vertex_buffer;
 
+Particle particles[MAX_PARTICLES];
+double lastTime;
+
+bool Initialise()
+{
+	// Initialise GLFW
+	if (!glfwInit())
+	{
+		fprintf(stderr, "Failed to initialize GLFW\n");
+		getchar();
+		return -1;
+	}
+
+	glfwWindowHint(GLFW_SAMPLES, 4);
+	glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	// Open a window and create its OpenGL context
+	window = glfwCreateWindow(1920, 1080, "N-Body Simulation", NULL, NULL);
+	if (window == NULL) {
+		fprintf(stderr, "Failed to open GLFW window. If you have an Intel GPU, they are not 3.3 compatible. Try the 2.1 version of the tutorials.\n");
+		getchar();
+		glfwTerminate();
+		return -1;
+	}
+	glfwMakeContextCurrent(window);
+
+	// Initialize GLEW
+	glewExperimental = true; // Needed for core profile
+	if (glewInit() != GLEW_OK) {
+		fprintf(stderr, "Failed to initialize GLEW\n");
+		getchar();
+		glfwTerminate();
+		return -1;
+	}
+
+	// Ensure we can capture the escape key being pressed below
+	glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
+	// Hide the mouse and enable unlimited mouvement
+	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+	// Set the mouse at the center of the screen
+	glfwPollEvents();
+	glfwSetCursorPos(window, 1024 / 2, 768 / 2);
+
+	//Backgroud colour
+	glClearColor(0.2f, 0.2f, 0.2f, 0.0f);
+
+	// Enable depth test
+	glEnable(GL_DEPTH_TEST);
+	// Accept fragment if it closer to the camera than the former one
+	glDepthFunc(GL_LESS);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glGenVertexArrays(1, &VertexArrayID);
+	glBindVertexArray(VertexArrayID);
+
+
+	// Create and compile our GLSL program from the shaders
+	shader.SetProgram();
+	shader.AddShaderFromFile("../res/shaders/Quad.vert", GLShader::VERTEX);
+	shader.AddShaderFromFile("../res/shaders/Quad.frag", GLShader::FRAGMENT);
+	shader.Link();
+
+
+	cam.SetProjection(glm::quarter_pi<float>(), 1920 / 1080, 2.414f, 100000);
+	cam.SetWindow(window);
+	cam.SetPosition(glm::vec3(0, 0, 20));
+
+	// Vertex shader
+	CameraRight_worldspace_ID = glGetUniformLocation(shader.GetId(), "CameraRight_worldspace");
+	CameraUp_worldspace_ID = glGetUniformLocation(shader.GetId(), "CameraUp_worldspace");
+	ViewProjMatrixID = glGetUniformLocation(shader.GetId(), "VP");
+
+	lastTime = glfwGetTime();
+
+	unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+	std::mt19937 generator(seed);
+	std::uniform_real_distribution<double> randomPos(0.0, 1.0);
+	//need to use
+	for (int i = 1; i < MAX_PARTICLES; i++)
+	{
+		double x = rand() % 100;
+		double y = rand() % 100;
+		double z = rand() % 100;
+
+		particles[i].pos = glm::dvec3(x, y, z);
+		particles[i].velocity = glm::dvec3(0);
+		particles[i].r = 0;
+		particles[i].g = 100;
+		particles[i].b = 255;
+		particles[i].a = 255;
+		particles[i].mass = 1;
+		particles[i].radius = 1;
+
+		gl_colour_data[4 * i + 0] = particles[i].r;
+		gl_colour_data[4 * i + 1] = particles[i].g;
+		gl_colour_data[4 * i + 2] = particles[i].b;
+		gl_colour_data[4 * i + 3] = particles[i].a;
+
+	}
+
+	tex = Texture("../res/textures/Particle.png");
+
+	static const GLfloat g_vertex_buffer_data[] =
+	{
+		-0.5f, -0.5f, 0.0f,
+		0.5f, -0.5f, 0.0f,
+		-0.5f,  0.5f, 0.0f,
+		0.5f,  0.5f, 0.0f,
+	};
+	glGenBuffers(1, &vertex_buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
+
+	//The VBO containing the positions and sizes of the particles
+	glGenBuffers(1, &pos_buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, pos_buffer);
+	//Initialize with empty (NULL) buffer : it will be updated later, each frame.
+	glBufferData(GL_ARRAY_BUFFER, MAX_PARTICLES * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
+
+	//The VBO containing the colors of the particles
+	glGenBuffers(1, &colour_buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, colour_buffer);
+	//Initialize with empty (NULL) buffer : it will be updated later, each frame.
+	glBufferData(GL_ARRAY_BUFFER, MAX_PARTICLES * 4 * sizeof(GLubyte), NULL, GL_STREAM_DRAW);
+
+	return 0;
+}
+
+void UpdateParticles(double deltaTime)
+{
+	//set somewhere more logical
+	float dt = 0.01;
+	for (int i = 0; i < MAX_PARTICLES; i++)
+	{
+		//Particle& p = particles[i];
+		float fX = 0.0f; float fY = 0.0f; float fZ = 0.0f;
+
+		for (int j = 0; j < MAX_PARTICLES; j++)
+		{
+			float dx = particles[j].pos.x - particles[i].pos.x;
+			float dy = particles[j].pos.y - particles[i].pos.y;
+			float dz = particles[j].pos.z - particles[i].pos.z;
+			float distSqr = dx*dx + dy*dy + dz*dz + SOFTENING;
+			float invDist = 1.0f / sqrtf(distSqr);
+			float invDist3 = invDist * invDist * invDist;
+
+			fX += dx * invDist3;
+			fY += dy * invDist3;
+			fZ += dz * invDist3;
+		}
+
+		particles[i].velocity.x += fX;
+		particles[i].velocity.y += fY;
+		particles[i].velocity.z += fZ;
+	}
+
+	for (int i = 0; i < MAX_PARTICLES; i++)
+	{
+		Particle& p = particles[i];
+		p.pos += dt*p.velocity;
+
+		// Update GPU buffer with new positions.
+		gl_pos_data[4 * i + 0] = p.pos.x;
+		gl_pos_data[4 * i + 1] = p.pos.y;
+		gl_pos_data[4 * i + 2] = p.pos.z;
+		gl_pos_data[4 * i + 3] = p.radius;
+
+	}
+}
+
 void Update(double deltaTime)
 {
+	//make targe once I set bounds
+	float ratio_width = glm::quarter_pi<float>() / static_cast<float>(1920);
+	float ratio_height = glm::quarter_pi<float>() / static_cast<float>(1080);
+
+	double xpos, ypos;
+	glfwGetCursorPos(window, &xpos, &ypos);
+	glfwSetCursorPos(window, 1920.0 / 2, 1080.0 / 2);
+	// Calculate delta of cursor positions from last frame
+	double delta_x = xpos - 1920.0 / 2;
+	double delta_y = ypos - 1080.0 / 2;
+	// Multiply deltas by ratios - gets actual change in orientation
+	delta_x *= ratio_width;
+	delta_y *= ratio_height;
+	cam.Rotate(static_cast<float>(delta_x), static_cast<float>(-delta_y)); // flipped y to revert the invert.
 	cam.Update(deltaTime);
+
+
+	// Handle N-Body simulation segment.
+	//SimulateParticles();
+	UpdateParticles(deltaTime);
 }
 
 
@@ -164,150 +340,24 @@ void Render()
 
 int main(void)
 {
-	// Initialise GLFW
-	if (!glfwInit())
-	{
-		fprintf(stderr, "Failed to initialize GLFW\n");
-		getchar();
+	if (Initialise() == -1)
 		return -1;
-	}
 
-	glfwWindowHint(GLFW_SAMPLES, 4);
-	glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	// Open a window and create its OpenGL context
-	window = glfwCreateWindow(1920, 1080, "N-Body Simulation", NULL, NULL);
-	if (window == NULL) {
-		fprintf(stderr, "Failed to open GLFW window. If you have an Intel GPU, they are not 3.3 compatible. Try the 2.1 version of the tutorials.\n");
-		getchar();
-		glfwTerminate();
-		return -1;
-	}
-	glfwMakeContextCurrent(window);
-
-	// Initialize GLEW
-	glewExperimental = true; // Needed for core profile
-	if (glewInit() != GLEW_OK) {
-		fprintf(stderr, "Failed to initialize GLEW\n");
-		getchar();
-		glfwTerminate();
-		return -1;
-	}
-
-	// Ensure we can capture the escape key being pressed below
-	glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
-	// Hide the mouse and enable unlimited mouvement
-	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
-	// Set the mouse at the center of the screen
-	glfwPollEvents();
-	glfwSetCursorPos(window, 1024 / 2, 768 / 2);
-
-	// Dark blue background
-	glClearColor(0.0f, 0.0f, 0.4f, 0.0f);
-
-	// Enable depth test
-	glEnable(GL_DEPTH_TEST);
-	// Accept fragment if it closer to the camera than the former one
-	glDepthFunc(GL_LESS);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	GLuint VertexArrayID;
-	glGenVertexArrays(1, &VertexArrayID);
-	glBindVertexArray(VertexArrayID);
-
-
-	// Create and compile our GLSL program from the shaders
-	shader.SetProgram();
-	shader.AddShaderFromFile("Quad.vert", GLShader::VERTEX);
-	shader.AddShaderFromFile("Quad.frag", GLShader::FRAGMENT);
-	shader.Link();
-
-
-	cam.SetProjection(glm::quarter_pi<float>(), 1920 / 1080, 2.414f, 100000);
-	cam.SetWindow(window);
-	cam.SetPosition(glm::vec3(0, 0, 20));
-
-	// Vertex shader
-	CameraRight_worldspace_ID = glGetUniformLocation(shader.GetId(), "CameraRight_worldspace");
-	CameraUp_worldspace_ID = glGetUniformLocation(shader.GetId(), "CameraUp_worldspace");
-	ViewProjMatrixID = glGetUniformLocation(shader.GetId(), "VP");
-
-	double lastTime = glfwGetTime();
-
-	unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-	std::mt19937 generator(seed);
-	std::uniform_real_distribution<double> uniform01(0.0, 1.0);
-	
-	for (int i = 1; i < MAX_PARTICLES; i++)
-	{
-		double x = rand() % 100;
-		double y = rand() % 100;
-		double z = rand() % 100;
-
-		Particles[i].pos = glm::dvec3(x, y, z);
-		Particles[i].velocity = glm::dvec3(0);
-		Particles[i].r = rand() % 256;
-		Particles[i].g = rand() % 256;
-		Particles[i].b = rand() % 256;
-		Particles[i].a = 255;
-		Particles[i].mass = 1;
-		Particles[i].size = 1;
-
-		gl_colour_data[4 * i + 0] = Particles[i].r;
-		gl_colour_data[4 * i + 1] = Particles[i].g;
-		gl_colour_data[4 * i + 2] = Particles[i].b;
-		gl_colour_data[4 * i + 3] = Particles[i].a;
-
-	}
-
-	tex = Texture("debug.png");
-
-	static const GLfloat g_vertex_buffer_data[] =
-	{
-		-0.5f, -0.5f, 0.0f,
-		0.5f, -0.5f, 0.0f,
-		-0.5f,  0.5f, 0.0f,
-		0.5f,  0.5f, 0.0f,
-	};
-	glGenBuffers(1, &vertex_buffer);
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
-
-	//The VBO containing the positions and sizes of the particles
-	glGenBuffers(1, &pos_buffer);
-	glBindBuffer(GL_ARRAY_BUFFER, pos_buffer);
-	//Initialize with empty (NULL) buffer : it will be updated later, each frame.
-	glBufferData(GL_ARRAY_BUFFER, MAX_PARTICLES * 4 * sizeof(GLfloat), NULL, GL_STREAM_DRAW);
-
-	//The VBO containing the colors of the particles
-	glGenBuffers(1, &colour_buffer);
-	glBindBuffer(GL_ARRAY_BUFFER, colour_buffer);
-	//Initialize with empty (NULL) buffer : it will be updated later, each frame.
-	glBufferData(GL_ARRAY_BUFFER, MAX_PARTICLES * 4 * sizeof(GLubyte), NULL, GL_STREAM_DRAW);
-
-	do
+	//While still running and esc hasnt been pressed
+	while (glfwGetKey(window, GLFW_KEY_ESCAPE) != GLFW_PRESS && glfwWindowShouldClose(window) == 0)
 	{
 
 		double currentTime = glfwGetTime();
 		double delta = currentTime - lastTime;
-		Update(delta);
+		Update(delta);//need to store postions in collection and render later
 		Render();
 		lastTime = currentTime;
 
-	}// Check if the ESC key was pressed or the window was closed
-	while (glfwGetKey(window, GLFW_KEY_ESCAPE) != GLFW_PRESS &&
-		glfwWindowShouldClose(window) == 0);
-
+	}
 
 	delete[] gl_pos_data;
 
-	// Cleanup VBO and shader
+	//Cleanup VBO and shader
 	glDeleteBuffers(1, &colour_buffer);
 	glDeleteBuffers(1, &pos_buffer);
 	glDeleteBuffers(1, &vertex_buffer);
@@ -315,7 +365,7 @@ int main(void)
 	glDeleteVertexArrays(1, &VertexArrayID);
 
 
-	// Close OpenGL window and terminate GLFW
+	//Close OpenGL window and terminate GLFW
 	glfwTerminate();
 
 	return 0;

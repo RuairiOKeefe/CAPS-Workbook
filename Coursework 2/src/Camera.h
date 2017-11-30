@@ -54,4 +54,6 @@ public:
 	}
 
 	void Update(float update);
+	void Rotate(float deltaYaw, float deltaPitch);
+	void Movement(float deltaTime);
 };
