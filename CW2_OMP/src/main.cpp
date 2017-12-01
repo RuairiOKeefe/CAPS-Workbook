@@ -1,6 +1,3 @@
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
-
 #define _USE_MATH_DEFINES
 
 //The maximum particles to be simulated
@@ -44,8 +41,7 @@
 #include "Texture.h"
 #include <omp.h>
 #include <thread>
-#include <curand.h>
-#include <curand_kernel.h>
+#include <omp.h>
 
 //The texture for each particle
 Texture tex;
@@ -92,9 +88,6 @@ Particle particles[MAX_PARTICLES];
 Particle particleMovements[NUM_SIMULATIONS][MAX_PARTICLES];
 double lastTime;
 
-unsigned long long particlesSize;
-Particle *particlesBuffer;
-
 using namespace std::chrono;
 
 void LoadParticles()
@@ -126,8 +119,6 @@ void LoadParticles()
 		gl_colour_data[4 * i + 3] = particles[i].a;
 
 	}
-
-	cudaMemcpy(particlesBuffer, &particles, particlesSize, cudaMemcpyHostToDevice);
 
 	for (int i = 0; i < MAX_PARTICLES; i++)
 	{
@@ -233,50 +224,37 @@ int Initialise()
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	cudaSetDevice(0);
-	particlesSize = sizeof(Particle)*MAX_PARTICLES;
-	cudaMalloc((void**)&particlesBuffer, particlesSize);
-
 	LoadParticles();
 
 	return 0;
 }
 
-__global__
-void CalculateForces(Particle* particles)
-{
-	float fX = 0.0f; float fY = 0.0f; float fZ = 0.0f;
-
-	int i = threadIdx.x + blockIdx.x * blockDim.x;
-
-	for (int j = 0; j < MAX_PARTICLES; j++)
-	{
-		float dx = particles[j].pos.x - particles[i].pos.x;
-		float dy = particles[j].pos.y - particles[i].pos.y;
-		float dz = particles[j].pos.z - particles[i].pos.z;
-		float distSqr = dx*dx + dy*dy + dz*dz + SOFTENING;
-		float invDist = 1.0f / sqrtf(distSqr);
-		float invDist3 = invDist * invDist * invDist;
-
-		fX += (particles[i].mass * particles[j].mass) * dx * invDist3;
-		fY += (particles[i].mass * particles[j].mass) * dy * invDist3;
-		fZ += (particles[i].mass * particles[j].mass) * dz * invDist3;
-	}
-
-	particles[i].velocity.x += fX;
-	particles[i].velocity.y += fY;
-	particles[i].velocity.z += fZ;
-}
-
 void SimulateParticles(int currentIndex)
 {
-	//move somewhere more logical
-	int numBlocks = 16;
+	int i=0;
+#pragma omp parallel for private(i)
+	for (i = 0; i < MAX_PARTICLES; i++)
+	{
+		float fX = 0.0f; float fY = 0.0f; float fZ = 0.0f;
 
-	cudaMemcpy(particlesBuffer, &particles, particlesSize, cudaMemcpyHostToDevice);
-	CalculateForces << <numBlocks, MAX_PARTICLES / numBlocks >> > (particlesBuffer);
-	cudaDeviceSynchronize();
-	cudaMemcpy(particles, &particlesBuffer[0], particlesSize, cudaMemcpyDeviceToHost);
+		for (int j = 0; j < MAX_PARTICLES; j++)
+		{
+			float dx = particles[j].pos.x - particles[i].pos.x;
+			float dy = particles[j].pos.y - particles[i].pos.y;
+			float dz = particles[j].pos.z - particles[i].pos.z;
+			float distSqr = dx*dx + dy*dy + dz*dz + SOFTENING;
+			float invDist = 1.0f / sqrtf(distSqr);
+			float invDist3 = invDist * invDist * invDist;
+
+			fX += (particles[i].mass * particles[j].mass) * dx * invDist3;
+			fY += (particles[i].mass * particles[j].mass) * dy * invDist3;
+			fZ += (particles[i].mass * particles[j].mass) * dz * invDist3;
+		}
+
+		particles[i].velocity.x += fX;
+		particles[i].velocity.y += fY;
+		particles[i].velocity.z += fZ;
+	}
 
 	for (int i = 0; i < MAX_PARTICLES; i++)
 	{

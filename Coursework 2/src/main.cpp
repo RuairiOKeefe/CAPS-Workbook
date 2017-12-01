@@ -1,12 +1,14 @@
 #define _USE_MATH_DEFINES
 
 //The maximum particles to be simulated
-#define MAX_PARTICLES 1000
+#define MAX_PARTICLES 256
 //How many simulations are to be ran
 #define NUM_SIMULATIONS 1000
+//How many tests are to be ran
+#define NUM_TESTS 100
 //The delta time between each simulation
-#define TIMESTEP 0.0001f;
-//Small value to prevent /0
+#define TIMESTEP 0.01f;
+//Small, near 0 value to improve result
 #define SOFTENING 1e-4f
 //Newtons gravitational constant, probably wont use this because of how weak gravity is 
 #define G 6.673e-11f
@@ -237,16 +239,13 @@ void SimulateParticles(int currentIndex)
 			float dx = particles[j].pos.x - particles[i].pos.x;
 			float dy = particles[j].pos.y - particles[i].pos.y;
 			float dz = particles[j].pos.z - particles[i].pos.z;
-			float distSqr = dx*dx + dy*dy + dz*dz;
-			if (distSqr != 0)
-			{
-				float invDist = 1.0f / sqrtf(distSqr);
-				float invDist3 = invDist * invDist * invDist;
+			float distSqr = dx*dx + dy*dy + dz*dz + SOFTENING;
+			float invDist = 1.0f / sqrtf(distSqr);
+			float invDist3 = invDist * invDist * invDist;
 
-				fX += (particles[i].mass * particles[j].mass) * dx * invDist3;
-				fY += (particles[i].mass * particles[j].mass) * dy * invDist3;
-				fZ += (particles[i].mass * particles[j].mass) * dz * invDist3;
-			}
+			fX += (particles[i].mass * particles[j].mass) * dx * invDist3;
+			fY += (particles[i].mass * particles[j].mass) * dy * invDist3;
+			fZ += (particles[i].mass * particles[j].mass) * dz * invDist3;
 		}
 
 		particles[i].velocity.x += fX;
@@ -277,13 +276,13 @@ void UpdatePosBuffer(int currentIndex)
 		for (int j = 0; j < (MAX_PARTICLES - 1); j++)
 		{
 			Particle& p1 = tempParticles[j];
-			Particle& p2 = tempParticles[j+1];
+			Particle& p2 = tempParticles[j + 1];
 			if (glm::distance(p2.pos, cam.GetPosition()) > glm::distance(p1.pos, cam.GetPosition()))
 			{
 				Particle temp = p1;
 				p1 = p2;
 				p2 = temp;
-				swap = 1; 
+				swap = 1;
 			}
 		}
 	}
@@ -387,16 +386,19 @@ int main(void)
 	if (Initialise() == -1)
 		return -1;
 	std::ofstream data((std::to_string(NUM_SIMULATIONS) + "_simulations.csv").c_str(), std::ofstream::out);
-	clock_t t;
-	t = clock();
-	for (int i = 0; i < NUM_SIMULATIONS; i++)
+	for (int n = 0; n < NUM_TESTS; n++)
 	{
-		SimulateParticles(i);
+		clock_t t;
+		t = clock();
+		for (int i = 0; i < NUM_SIMULATIONS; i++)
+		{
+			SimulateParticles(i);
+		}
+		clock_t end = clock();
+		float elapsedTime = float(end - t) / CLOCKS_PER_SEC;
+		data << elapsedTime << std::endl;
+		LoadParticles();
 	}
-	clock_t end = clock();
-	float elapsedTime = float(end - t) / CLOCKS_PER_SEC;
-	data << elapsedTime << std::endl;
-
 	data.close();
 
 	int i = 0;
