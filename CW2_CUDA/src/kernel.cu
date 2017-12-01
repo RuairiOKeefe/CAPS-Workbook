@@ -1,3 +1,6 @@
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+
 #define _USE_MATH_DEFINES
 
 //The maximum particles to be simulated
@@ -39,6 +42,8 @@
 #include "Texture.h"
 #include <omp.h>
 #include <thread>
+#include <curand.h>
+#include <curand_kernel.h>
 
 //The texture for each particle
 Texture tex;
@@ -85,6 +90,7 @@ Particle particles[MAX_PARTICLES];
 Particle particleMovements[NUM_SIMULATIONS][MAX_PARTICLES];
 double lastTime;
 
+Particle *particlesBuffer;
 using namespace std::chrono;
 
 void LoadParticles()
@@ -226,32 +232,41 @@ int Initialise()
 	return 0;
 }
 
+__global__
+void CalculateForces(Particle* particles, int i, int currentIndex)
+{
+	float fX = 0.0f; float fY = 0.0f; float fZ = 0.0f;
+
+	for (int j = 0; j < MAX_PARTICLES; j++)
+	{
+		float dx = particles[j].pos.x - particles[i].pos.x;
+		float dy = particles[j].pos.y - particles[i].pos.y;
+		float dz = particles[j].pos.z - particles[i].pos.z;
+		float distSqr = dx*dx + dy*dy + dz*dz;
+		if (distSqr != 0)
+		{
+			float invDist = 1.0f / sqrtf(distSqr);
+			float invDist3 = invDist * invDist * invDist;
+
+			fX += (particles[i].mass * particles[j].mass) * dx * invDist3;
+			fY += (particles[i].mass * particles[j].mass) * dy * invDist3;
+			fZ += (particles[i].mass * particles[j].mass) * dz * invDist3;
+		}
+	}
+
+	particles[i].velocity.x += fX;
+	particles[i].velocity.y += fY;
+	particles[i].velocity.z += fZ;
+}
+
 void SimulateParticles(int currentIndex)
 {
+	//move somewhere more logical
+	int numBlocks = 16;
 	for (int i = 0; i < MAX_PARTICLES; i++)
 	{
-		float fX = 0.0f; float fY = 0.0f; float fZ = 0.0f;
-
-		for (int j = 0; j < MAX_PARTICLES; j++)
-		{
-			float dx = particles[j].pos.x - particles[i].pos.x;
-			float dy = particles[j].pos.y - particles[i].pos.y;
-			float dz = particles[j].pos.z - particles[i].pos.z;
-			float distSqr = dx*dx + dy*dy + dz*dz;
-			if (distSqr != 0)
-			{
-				float invDist = 1.0f / sqrtf(distSqr);
-				float invDist3 = invDist * invDist * invDist;
-
-				fX += (particles[i].mass * particles[j].mass) * dx * invDist3;
-				fY += (particles[i].mass * particles[j].mass) * dy * invDist3;
-				fZ += (particles[i].mass * particles[j].mass) * dz * invDist3;
-			}
-		}
-
-		particles[i].velocity.x += fX;
-		particles[i].velocity.y += fY;
-		particles[i].velocity.z += fZ;
+		//need to copy variables to gpu
+		CalculateForces<<<numBlocks, MAX_PARTICLES / numBlocks >>>(particlesBuffer, i, currentIndex);
 	}
 
 	for (int i = 0; i < MAX_PARTICLES; i++)
@@ -277,13 +292,13 @@ void UpdatePosBuffer(int currentIndex)
 		for (int j = 0; j < (MAX_PARTICLES - 1); j++)
 		{
 			Particle& p1 = tempParticles[j];
-			Particle& p2 = tempParticles[j+1];
+			Particle& p2 = tempParticles[j + 1];
 			if (glm::distance(p2.pos, cam.GetPosition()) > glm::distance(p1.pos, cam.GetPosition()))
 			{
 				Particle temp = p1;
 				p1 = p2;
 				p2 = temp;
-				swap = 1; 
+				swap = 1;
 			}
 		}
 	}
