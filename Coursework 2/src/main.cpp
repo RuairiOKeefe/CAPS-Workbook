@@ -1,7 +1,7 @@
 #define _USE_MATH_DEFINES
 
 //The maximum particles to be simulated
-#define MAX_PARTICLES 8
+#define MAX_PARTICLES 4096
 //How many simulations are to be ran
 #define NUM_SIMULATIONS 1000
 //How many tests are to be ran
