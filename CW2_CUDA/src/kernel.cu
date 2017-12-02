@@ -4,7 +4,7 @@
 #define _USE_MATH_DEFINES
 
 //The maximum particles to be simulated
-#define MAX_PARTICLES 256
+#define MAX_PARTICLES 2048
 //How many simulations are to be ran
 #define NUM_SIMULATIONS 1000
 //How many tests are to be ran
@@ -15,6 +15,8 @@
 #define SOFTENING 1e-4f
 //Newtons gravitational constant, probably wont use this because of how weak gravity is 
 #define G 6.673e-11f
+//How many blocks to use
+#define BLOCK_SIZE 16
 
 //Density of hydrogen in kg/m3
 #define H_DENISTY 0.08988
@@ -270,11 +272,9 @@ void CalculateForces(Particle* particles)
 
 void SimulateParticles(int currentIndex)
 {
-	//move somewhere more logical
-	int numBlocks = 16;
-
+	int nBlocks = (MAX_PARTICLES + BLOCK_SIZE - 1) / BLOCK_SIZE;
 	cudaMemcpy(particlesBuffer, &particles, particlesSize, cudaMemcpyHostToDevice);
-	CalculateForces << <numBlocks, MAX_PARTICLES / numBlocks >> > (particlesBuffer);
+	CalculateForces << <nBlocks, BLOCK_SIZE>> > (particlesBuffer);
 	cudaDeviceSynchronize();
 	cudaMemcpy(particles, &particlesBuffer[0], particlesSize, cudaMemcpyDeviceToHost);
 
