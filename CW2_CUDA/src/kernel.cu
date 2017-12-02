@@ -16,7 +16,7 @@
 //Newtons gravitational constant, probably wont use this because of how weak gravity is 
 #define G 6.673e-11f
 //How many blocks to use
-#define BLOCK_SIZE 64
+#define BLOCK_SIZE 16
 
 //Density of hydrogen in kg/m3
 #define H_DENISTY 0.08988
