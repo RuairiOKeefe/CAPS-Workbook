@@ -410,7 +410,7 @@ int main(void)
 {
 	if (Initialise() == -1)
 		return -1;
-	std::ofstream data((std::to_string(MAX_PARTICLES) + "P_" + std::to_string(NUM_SIMULATIONS) + "S_" + std::to_string(NUM_TESTS) + "T.csv").c_str(), std::ofstream::out);
+	std::ofstream data((std::to_string(BLOCK_SIZE) + "B_" + std::to_string(MAX_PARTICLES) + "P_" + std::to_string(NUM_SIMULATIONS) + "S_" + std::to_string(NUM_TESTS) + "T.csv").c_str(), std::ofstream::out);
 	for (int n = 0; n < NUM_TESTS; n++)
 	{
 		clock_t t;
