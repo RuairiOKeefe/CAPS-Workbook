@@ -16,7 +16,7 @@
 //Newtons gravitational constant, probably wont use this because of how weak gravity is 
 #define G 6.673e-11f
 //How many blocks to use
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 64
 
 //Density of hydrogen in kg/m3
 #define H_DENISTY 0.08988
@@ -410,7 +410,7 @@ int main(void)
 {
 	if (Initialise() == -1)
 		return -1;
-	std::ofstream data((std::to_string(MAX_PARTICLES) + "P_" + std::to_string(NUM_SIMULATIONS) + "S_" + std::to_string(NUM_TESTS) + "T.csv").c_str(), std::ofstream::out);
+	std::ofstream data((std::to_string(BLOCK_SIZE) + "B_" + std::to_string(MAX_PARTICLES) + "P_" + std::to_string(NUM_SIMULATIONS) + "S_" + std::to_string(NUM_TESTS) + "T.csv").c_str(), std::ofstream::out);
 	for (int n = 0; n < NUM_TESTS; n++)
 	{
 		clock_t t;
