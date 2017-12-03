@@ -1,11 +1,11 @@
 #define _USE_MATH_DEFINES
 
 //The maximum particles to be simulated
-#define MAX_PARTICLES 4096
+#define MAX_PARTICLES 1024
 //How many simulations are to be ran
 #define NUM_SIMULATIONS 1000
 //How many tests are to be ran
-#define NUM_TESTS 100
+#define NUM_TESTS 1
 //The delta time between each simulation
 #define TIMESTEP 0.01f;
 //Small, near 0 value to improve result
